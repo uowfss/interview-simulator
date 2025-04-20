@@ -15,10 +15,10 @@ class InterviewWindow(tk.Toplevel):
         self.api_name = api_name
         self.api_key = api_key
         self.questions = questions
-        self.current_question = 0
+        self.current_question = -1
 
         self.setup_ui()
-        self.show_question()
+        self.show_greeting()
 
     def setup_ui(self):
         self.text_area = scrolledtext.ScrolledText(self, wrap=tk.WORD, width=90, height=25)
@@ -43,18 +43,28 @@ class InterviewWindow(tk.Toplevel):
         
         self.r = sr.Recognizer()
     
+    def show_greeting(self):
+        self.text_area.insert(tk.END, f"\nInterviewer: {self.greeting}\n")
+        self.text_area.insert(tk.END, "\nInterviewer: We'll start with your introduction.\n")
+        self.text_area.see(tk.END)
+        self.current_question = 0  # Points to self-intro question
+        self.listen_btn.config(state=tk.NORMAL)
+
     def show_question(self):
-        if self.current_question < len(self.questions):
+        if 0 <= self.current_question < len(self.questions):
             q = self.questions[self.current_question]
             self.text_area.insert(tk.END, f"\nInterviewer: {q}\n")
             self.text_area.see(tk.END)
-        else:
+        elif self.current_question >= len(self.questions):
             self.text_area.insert(tk.END, "\n\nInterview completed! Thank you!\n")
             self.listen_btn.config(state=tk.DISABLED)
 
     def start_listening_thread(self):
-        thread = threading.Thread(target=self.listen_and_convert)
-        thread.start()
+        if self.current_question == -1:
+            self.show_greeting()
+        else:
+            thread = threading.Thread(target=self.listen_and_convert)
+            thread.start()
 
     def listen_and_convert(self):
         self.listen_btn.config(state=tk.DISABLED)

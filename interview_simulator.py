@@ -60,10 +60,10 @@ class SpeechApp:
     def generate_questions(self, job_description):
         try:
             selected_api = self.api_var.get()
-            prompt = f"""Generate 8 technical interview questions based on this job description.
-            Return ONLY a JSON array of question strings using this exact format: 
-            ["First question?", "Second question?", ...]
-            Do not include any explanations or formatting.
+            prompt = f"""Generate two things based on this job description: 
+            1. A friendly greeting mentioning the job role 
+            2. 8 technical interview questions
+            Return a JSON object with two keys: "greeting" (string) and "questions" (array).
             Job description: {job_description}"""
 
             if selected_api == "OpenAI":
@@ -83,23 +83,47 @@ class SpeechApp:
                 )
                 if response.status_code == 200:
                     content = response.json()["choices"][0]["message"]["content"]
-                    print("OpenAI Raw Response:", content)  # Debug output
-                    return self.parse_questions(content)
-                raise Exception(f"OpenAI API Error: {response.text}")
+                    print("OpenAI Raw Response:", content)
+                    try:
+                        data = json.loads(content)
+                        greeting = data.get("greeting", "Welcome! Let's begin the interview.")
+                        questions = data.get("questions", [])
+                    except json.JSONDecodeError:
+                        # Fallback to old format
+                        greeting = "Welcome! Let's begin the interview."
+                        questions = self.parse_questions(content)
+                    return (greeting, questions[:8])
 
             elif selected_api == "Google":
                 genai.configure(api_key=self.api_key_entry.get())
                 model = genai.GenerativeModel(APIS["Google"]["model_name"])
             
-                response = model.generate_content(
-                    prompt + "\nRemember to return ONLY the JSON array without any additional text."
-                )
+                greeting_prompt = f"{APIS['Google']['greeting_prompt']} {job_description}"
+                greeting_response = model.generate_content(greeting_prompt)
+                greeting = greeting_response.text.strip() if greeting_response.text else "Welcome! Let's begin the interview."
             
-                if response.text:
-                    print("Google Raw Response:", response.text)  # Debug output
-                    return self.parse_questions(response.text)
-                raise Exception("Google API returned empty response")
+                # Generate questions with explicit format request
+                question_prompt = f"""Generate 8 technical interview questions based on this job description.
+                Return ONLY a JSON array of question strings using format: ["question1?", "question2?", ...]
+                Job description: {job_description}"""
+            
+                question_response = model.generate_content(question_prompt)
+                raw_questions = question_response.text if question_response.text else ""
+            
+                # Parse using both JSON and regex methods
+                try:
+                    questions = json.loads(raw_questions)
+                except json.JSONDecodeError:
+                    questions = self.parse_questions(raw_questions)
+            
+                return (greeting, questions[:8])
 
+        except genai.GenerativeServiceError as e:
+            messagebox.showerror("Error", f"Google API Error: {e}")
+            return None
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("Error", f"Connection error: {str(e)}")
+            return None
         except Exception as e:
             messagebox.showerror("Error", f"Generation failed: {str(e)}")
             return None
@@ -139,10 +163,14 @@ class SpeechApp:
                 self.root.after(0, lambda: self.root.config(cursor="watch"))
             
                 # Generate questions
-                questions = self.generate_questions(job_description)
-                if not questions:
-                    self.root.after(0, lambda: messagebox.showerror("Error", "Failed to generate questions"))
+                greeting, questions = self.generate_questions(job_description)
+                if not questions or not greeting:
+                    self.root.after(0, lambda: messagebox.showerror("Error", "Failed to generate content"))
                     return
+                
+                # Add self-introduction as first question
+                self_intro = "Please introduce yourself, focusing on experience relevant to this role."
+                all_questions = [self_intro] + questions
             
                 # Get API key from keyring
                 api_key = keyring.get_password(
@@ -156,6 +184,7 @@ class SpeechApp:
                 # Create interview window
                 self.root.after(0, lambda: InterviewWindow(
                     self.root, 
+                    greeting,
                     questions, 
                     self.api_var.get(), 
                     api_key
