@@ -7,13 +7,14 @@ import requests
 from config import APIS, SERVICE_NAME
 
 class InterviewWindow(tk.Toplevel):
-    def __init__(self, parent, questions, api_name, api_key):
+    def __init__(self, parent, greeting, questions, api_name, api_key):
         super().__init__(parent)
         self.title = "Interview Window"
         self.geometry("800x600")
         self.parent = parent
         self.api_name = api_name
         self.api_key = api_key
+        self.greeting = greeting
         self.questions = questions
         self.current_question = -1
 
