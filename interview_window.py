@@ -20,7 +20,7 @@ class InterviewWindow(tk.Toplevel):
         self.current_stage = "greeting"  # greeting -> intro -> questions -> complete
 
         self.setup_ui()
-        self.show_greeting(greeting)
+        self.show_greeting()
 
     def setup_ui(self):
         self.text_area = scrolledtext.ScrolledText(self, wrap=tk.WORD, width=90, height=25)
