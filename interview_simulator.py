@@ -84,7 +84,7 @@ class SpeechApp:
                 ))
             
             except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Error", f"Error: {str(e)}"))
+                self.root.after(0, lambda e=e: messagebox.showerror("Error", f"Error: {str(e)}"))
             finally:
                 self.root.after(0, lambda: self.root.config(cursor=""))
 
