@@ -114,7 +114,7 @@ class SpeechApp:
 
                 # Create interview window with just greeting and job description
                 self.root.after(0, lambda: InterviewWindow(
-                    self, 
+                    self.root, 
                     greeting,
                     job_description,
                     self.api_var.get(), 
