@@ -57,101 +57,6 @@ class SpeechApp:
             command=self.start_interview
         ).pack(pady=20)
     
-    def generate_questions(self, job_description):
-        try:
-            selected_api = self.api_var.get()
-            prompt = f"""Generate two things based on this job description: 
-            1. A friendly greeting mentioning the job role 
-            2. 8 technical interview questions
-            Return a JSON object with two keys: "greeting" (string) and "questions" (array).
-            Job description: {job_description}"""
-
-            if selected_api == "OpenAI":
-                headers = {
-                    "Authorization": f"Bearer {self.api_key_entry.get()}",
-                    "Content-Type": "application/json"
-                }
-                data = {
-                    "model": "gpt-3.5-turbo",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.7
-                }
-                response = requests.post(
-                    APIS["OpenAI"]["chat_url"],
-                    headers=headers,
-                    json=data
-                )
-                if response.status_code == 200:
-                    content = response.json()["choices"][0]["message"]["content"]
-                    print("OpenAI Raw Response:", content)
-                    try:
-                        data = json.loads(content)
-                        greeting = data.get("greeting", "Welcome! Let's begin the interview.")
-                        questions = data.get("questions", [])
-                    except json.JSONDecodeError:
-                        # Fallback to old format
-                        greeting = "Welcome! Let's begin the interview."
-                        questions = self.parse_questions(content)
-                    return (greeting, questions[:8])
-
-            elif selected_api == "Google":
-                genai.configure(api_key=self.api_key_entry.get())
-                model = genai.GenerativeModel(APIS["Google"]["model_name"])
-            
-                greeting_prompt = f"{APIS['Google']['greeting_prompt']} {job_description}"
-                greeting_response = model.generate_content(greeting_prompt)
-                greeting = greeting_response.text.strip() if greeting_response.text else "Welcome! Let's begin the interview."
-            
-                # Generate questions with explicit format request
-                question_prompt = f"""Generate 8 technical interview questions based on this job description.
-                Return ONLY a JSON array of question strings using format: ["question1?", "question2?", ...]
-                Job description: {job_description}"""
-            
-                question_response = model.generate_content(question_prompt)
-                raw_questions = question_response.text if question_response.text else ""
-            
-                # Parse using both JSON and regex methods
-                try:
-                    questions = json.loads(raw_questions)
-                except json.JSONDecodeError:
-                    questions = self.parse_questions(raw_questions)
-            
-                return (greeting, questions[:8])
-
-        except genai.GenerativeServiceError as e:
-            messagebox.showerror("Error", f"Google API Error: {e}")
-            return None
-        except requests.exceptions.RequestException as e:
-            messagebox.showerror("Error", f"Connection error: {str(e)}")
-            return None
-        except Exception as e:
-            messagebox.showerror("Error", f"Generation failed: {str(e)}")
-            return None
-
-    def parse_questions(self, content):
-        try:
-            # First try direct JSON parsing
-            questions = json.loads(content)
-            if isinstance(questions, list):
-                return questions[:8]
-        except json.JSONDecodeError:
-            pass
-    
-        try:
-            # Enhanced pattern matching
-            questions = re.findall(
-                r'(?:\d+[\.\)]?|[-*])\s*"?(.+?)(?="?\s*(?:\n\s*\d+[\.\)]|$))', 
-                content, 
-                flags=re.DOTALL
-            )
-            # Clean up questions
-            clean_questions = [q.strip().replace('"', '') for q in questions]
-            return clean_questions[:8]
-        except Exception as e:
-            messagebox.showerror("Error", 
-                f"Could not parse questions from:\n\n{content[:200]}...")
-            return None
-    
     def start_interview(self):
         job_description = self.job_desc_text.get("1.0", tk.END).strip()
         if not job_description:
@@ -161,42 +66,62 @@ class SpeechApp:
         def generate_and_start():
             try:
                 self.root.after(0, lambda: self.root.config(cursor="watch"))
-            
-                # Generate questions
-                greeting, questions = self.generate_questions(job_description)
-                if not questions or not greeting:
-                    self.root.after(0, lambda: messagebox.showerror("Error", "Failed to generate content"))
-                    return
-                
-                # Add self-introduction as first question
-                self_intro = "Please introduce yourself, focusing on experience relevant to this role."
-                all_questions = [self_intro] + questions
-            
-                # Get API key from keyring
+
+                # Generate initial greeting
+                greeting = self.generate_greeting(job_description)
                 api_key = keyring.get_password(
                     SERVICE_NAME,
                     APIS[self.api_var.get()]["username"]
                 )
-                if not api_key:
-                    self.root.after(0, lambda: messagebox.showerror("Error", "API key not found in system keyring"))
-                    return
-            
-                # Create interview window
+
+                # Create interview window with just greeting and job description
                 self.root.after(0, lambda: InterviewWindow(
-                    self.root, 
+                    self, 
                     greeting,
-                    questions, 
+                    job_description,
                     self.api_var.get(), 
                     api_key
                 ))
-
+            
             except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Error", f"Unexpected error: {str(e)}"))
+                self.root.after(0, lambda: messagebox.showerror("Error", f"Error: {str(e)}"))
             finally:
                 self.root.after(0, lambda: self.root.config(cursor=""))
 
-        # Start the background thread
         threading.Thread(target=generate_and_start, daemon=True).start()
+            
+        def generate_next_question(self, conversation_history, job_description):
+            try:
+                selected_api = self.api_var.get()
+                prompt = f"""Generate one follow-up interview question based on:
+                - This job description: {job_description}
+                - The conversation so far: {conversation_history}
+                Return ONLY the question text without any formatting."""
+
+                if selected_api == "OpenAI":
+                    headers = {
+                        "Authorization": f"Bearer {self.api_key_entry.get()}",
+                        "Content-Type": "application/json"
+                    }
+                    data = {
+                        "model": "gpt-3.5-turbo",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.7
+                    }
+                    response = requests.post(APIS["OpenAI"]["chat_url"], headers=headers, json=data)
+                    if response.status_code == 200:
+                        return response.json()["choices"][0]["message"]["content"].strip()
+            
+                elif selected_api == "Google":
+                    genai.configure(api_key=self.api_key_entry.get())
+                    model = genai.GenerativeModel(APIS["Google"]["model_name"])
+                    response = model.generate_content(prompt)
+                    return response.text.strip() if response.text else ""
+            
+                return "Could you elaborate on that?"
+        
+            except Exception as e:
+                return "Let's move to the next question."
 
     def update_key(self):
         selected_api = self.api_var.get()
